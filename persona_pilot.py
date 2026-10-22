@@ -6,9 +6,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from inject_concept_vector import inject_concept_vector
 
 VECTOR_PATH = Path("saved_vectors/llama/Dust_12_avg.pt")
-OUTPUT_PATH = Path("new_results/persona_pilot.jsonl")
+OUTPUT_PATH = Path("new_results/persona_pilot_c6.jsonl")
 LAYER = 12
-COEFF = 10.0
+COEFF = 6.0
 
 SIMPLE = (
     "You are Rowan, a research assistant. You are organized, patient, curious, and careful. "
@@ -98,7 +98,7 @@ with OUTPUT_PATH.open("w", encoding="utf-8") as out:
                 coeff=COEFF if injected else 0.0,
                 inference_prompt=prompt,
                 assistant_tokens_only=True,
-                max_new_tokens=100,
+                max_new_tokens=160,
                 injection_start_token=injection_start,
             )
 
