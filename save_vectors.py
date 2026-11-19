@@ -53,13 +53,23 @@ def main():
     
     # Load model
     print(f"Loading model: {args.model}")
-    model = AutoModelForCausalLM.from_pretrained(args.model)
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    print(f"Model loaded on {device}")
-    
+    if not torch.cuda.is_available():
+        raise RuntimeError("Run this script inside a GPU Slurm job.")
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+        local_files_only=True,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(args.model, local_files_only=True)
+    model.eval()
+    layers = getattr(getattr(model, "model", None), "layers", None)
+    if layers is None:
+        layers = getattr(getattr(getattr(model, "language_model", None), "model", None), "layers", None)
+    if layers is None:
+        raise RuntimeError(f"Cannot find decoder layers on {type(model).__name__}")
+    print(f"Model loaded: {type(model).__name__}; decoder layers: {len(layers)}")
+
     sweep_all_layers_and_coefficients(model, tokenizer, args.model, args.datasets, args.layer_range, args.save_dir)
 
 if __name__ == "__main__":

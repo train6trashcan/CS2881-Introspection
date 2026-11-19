@@ -1,15 +1,14 @@
 import torch
 import transformers 
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from compute_concept_vector_utils import get_model_type
 
 
-def format_inference_prompt(model_type, user_message):
-    """Format inference prompt based on model type"""
-    if model_type == "qwen":
-        return f"<|im_start|>user\n{user_message}<|im_end|>\n<|im_start|>assistant\n"
-    else:  # llama
-        return f"<|start_header_id|>user<|end_header_id|>{user_message}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
+def format_inference_prompt(tokenizer, user_message):
+    return tokenizer.apply_chat_template(
+        [{"role": "user", "content": user_message or ""}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
 
 def inject_concept_vector(model, tokenizer, steering_vector, layer_to_inject, coeff = 12.0, inference_prompt = None, assistant_tokens_only = False, max_new_tokens = 20, injection_start_token = None):
     '''
@@ -33,12 +32,12 @@ def inject_concept_vector(model, tokenizer, steering_vector, layer_to_inject, co
         steering_vector = steering_vector.unsqueeze(0)
     # print(f"shape of steering vector to be injected is {steering_vector.shape}")
     
-    model_type = get_model_type(tokenizer)
-    # Check if prompt is already formatted (contains formatting tokens)
-    if inference_prompt and ("<|start_header_id|>" in inference_prompt or "<|im_start|>" in inference_prompt):
+    chat_markers = ("<|start_header_id|>", "<|im_start|>", "<start_of_turn>")
+    if inference_prompt and any(marker in inference_prompt for marker in chat_markers):
         prompt = inference_prompt
     else:
-        prompt = format_inference_prompt(model_type, inference_prompt)
+        prompt = format_inference_prompt(tokenizer, inference_prompt)
+
     inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to(device)
     prompt_length = inputs.input_ids.shape[1]
     prompt_processed = False  # Track if we've processed the prompt
@@ -97,7 +96,12 @@ def inject_concept_vector(model, tokenizer, steering_vector, layer_to_inject, co
         # Return in the same format as received
         return (modified_hidden_states,) + output[1:] if isinstance(output, tuple) else modified_hidden_states
 
-    handle = model.model.layers[layer_to_inject].register_forward_hook(hook_fn)
+    layers = getattr(getattr(model, "model", None), "layers", None)
+    if layers is None:
+        layers = getattr(getattr(getattr(model, "language_model", None), "model", None), "layers", None)
+    if layers is None or not 0 <= layer_to_inject < len(layers):
+        raise RuntimeError(f"Cannot access injection layer {layer_to_inject} on {type(model).__name__}")
+    handle = layers[layer_to_inject].register_forward_hook(hook_fn)
     
    
     with torch.no_grad():

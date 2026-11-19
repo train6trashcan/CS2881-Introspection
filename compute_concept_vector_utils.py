@@ -15,18 +15,13 @@ def get_model_type(tokenizer):
     else:
         return "llama"
 
-def format_prompt(model_type, user_message, dataset_name=None):
-    """Format prompt based on model type"""
-    if model_type == "qwen":
-        if dataset_name == "simple_data":
-            return f"<|im_start|>user\nTell me about {user_message}.<|im_end|>\n<|im_start|>assistant\n"
-        else:
-            return f"<|im_start|>user\n{user_message}<|im_end|>\n<|im_start|>assistant\n"
-    else:  # llama
-        if dataset_name == "simple_data":
-            return f"<|start_header_id|>user<|end_header_id|>Tell me about {user_message}.<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
-        else:
-            return f"<|start_header_id|>user<|end_header_id|>{user_message}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
+def format_prompt(tokenizer, user_message, dataset_name=None):
+    content = f"Tell me about {user_message}." if dataset_name == "simple_data" else user_message
+    return tokenizer.apply_chat_template(
+        [{"role": "user", "content": content}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
 
 def get_data(dataset_name): 
     """Load raw data from json files"""
@@ -53,8 +48,7 @@ def compute_vector_single_prompt(model, tokenizer, dataset_name, steering_prompt
         prompt_last_vector: activation at last token (e.g., <end_header_id>)
         prompt_average_vector: average activation across all prompt tokens
     """
-    model_type = get_model_type(tokenizer)
-    prompt = format_prompt(model_type, steering_prompt, dataset_name)
+    prompt = format_prompt(tokenizer, steering_prompt, dataset_name)
     
     inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to(model.device)
     prompt_len = len(tokenizer.encode(prompt, add_special_tokens=False))
@@ -62,9 +56,9 @@ def compute_vector_single_prompt(model, tokenizer, dataset_name, steering_prompt
     with torch.no_grad():
         outputs = model(**inputs, output_hidden_states=True) # [batch_size, seq_len, hidden_dim]
         # like the ":" token in "Assistant:", but for llama it is <end_header_id> token
-        prompt_last_vector = outputs.hidden_states[layer_idx][:, prompt_len - 1, :].detach().cpu() 
+        prompt_last_vector = outputs.hidden_states[layer_idx + 1][:, prompt_len - 1, :].detach().cpu()
 
-        prompt_average_vector = outputs.hidden_states[layer_idx][:, :prompt_len, :].mean(dim=1).detach().cpu()
+        prompt_average_vector = outputs.hidden_states[layer_idx + 1][:, :prompt_len, :].mean(dim=1).detach().cpu()
         # print(f"prompt_last_vector: {prompt_last_vector.shape}")
         # print(f"prompt_average_vector: {prompt_average_vector.shape}")
         del outputs 
